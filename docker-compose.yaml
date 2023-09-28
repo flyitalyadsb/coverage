@@ -1,2 +1,15 @@
+version: '3.2'
 
-     /mlat-server-a/work-dir/mlat.csv /mlat-server-a/work-dir/sync.json /work-dir/total
+services:
+  coverage:
+    container_name: coverage
+    #build: ./
+    image:  ghcr.io/flyitalyadsb/coverage
+    command:
+      - "--csvfile=/data/mlat.csv"
+      - "--jsonfile=/data/sync.json"
+      - "--update=86400"
+      - "--outdir=/result"
+    volumes:
+      - ${MLAT_SERVER_A_WORKDIR_PATH}:/data
+      - ${COVERAGE_WORKDIR_PATH}:/result

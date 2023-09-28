@@ -1,14 +1,15 @@
-
 import csv
 import gzip
 import json
 import math
-import sys
+import os
 import time
 from contextlib import closing
+import argparse
 
 import cairo
 import colorsys
+import shutil
 
 
 class StationCoverage:
@@ -34,10 +35,14 @@ class StationCoverage:
         bin_lat = math.floor(lat / self.binsize) * self.binsize
         bin_lon = math.floor(lon / self.binsize) * self.binsize
 
-        if self.min_lat is None or bin_lat < self.min_lat: self.min_lat = bin_lat
-        if self.min_lon is None or bin_lon < self.min_lon: self.min_lon = bin_lon
-        if self.max_lat is None or bin_lat > self.max_lat: self.max_lat = bin_lat
-        if self.max_lon is None or bin_lon > self.max_lon: self.max_lon = bin_lon
+        if self.min_lat is None or bin_lat < self.min_lat:
+            self.min_lat = bin_lat
+        if self.min_lon is None or bin_lon < self.min_lon:
+            self.min_lon = bin_lon
+        if self.max_lat is None or bin_lat > self.max_lat:
+            self.max_lat = bin_lat
+        if self.max_lon is None or bin_lon > self.max_lon:
+            self.max_lon = bin_lon
 
         bin_key = (bin_lat, bin_lon)
         if self.alt_mode:
@@ -47,12 +52,15 @@ class StationCoverage:
             data = self.bins.setdefault(bin_key, [0, 0.0])
             data[0] += 1
             data[1] += err_est
-            if self.max_count is None or data[0] > self.max_count: self.max_count = data[0]
+            if self.max_count is None or data[0] > self.max_count:
+                self.max_count = data[0]
 
     def write(self, basedir, pngfile, metafile, pixels_per_degree=None):
-        if len(self.bins) == 0: return
+        if len(self.bins) == 0:
+            return
 
-        if not pixels_per_degree: pixels_per_degree = math.ceil(4.0 / self.binsize)
+        if not pixels_per_degree:
+            pixels_per_degree = math.ceil(4.0 / self.binsize)
 
         min_lon = self.min_lon
         min_lat = self.min_lat
@@ -109,33 +117,25 @@ class StationCoverage:
 
         surface.write_to_png(basedir + '/' + pngfile)
 
-        print >> metafile, """
-coverage['{name}'] = {{
-  name:    '{name}',
-  lat:     {station_lat},
-  lon:     {station_lon},
-  min_lat: {min_lat},
-  min_lon: {min_lon},
+        metafile.write(f"""
+coverage['{self.name}'] = {{
+  name:    '{self.name}',
+  lat:     {self.station_lat if self.station_lat is not None else 'null'},
+  lon:     {self.station_lon if self.station_lon is not None else 'null'},
+  min_lat: {self.min_lat},
+  min_lon: {self.min_lon},
   max_lat: {max_lat},
   max_lon: {max_lon},
   image:   '{pngfile}',
-  is_station: {is_station}
-}};""".format(name=self.name,
-              station_lat=(self.station_lat is None) and 'null' or self.station_lat,
-              station_lon=(self.station_lon is None) and 'null' or self.station_lon,
-              min_lat=self.min_lat,
-              min_lon=self.min_lon,
-              max_lat=max_lat,
-              max_lon=max_lon,
-              pngfile=pngfile,
-              is_station=self.is_station and "true" or "false")
+  is_station: {str(self.is_station).lower()}
+}};""")
 
 
 def multiopen(path):
     if path[-3:] == '.gz':
-        return gzip.open(path, 'rb')
+        return gzip.open(path, 'rt')
     else:
-        return open(path, 'rb')
+        return open(path, 'rt')
 
 
 def plot_from_datafile(csvfile, jsonfile, outdir):
@@ -153,8 +153,7 @@ def plot_from_datafile(csvfile, jsonfile, outdir):
         station_data = json.load(f)
 
     for station_name, station_pos in station_data.items():
-        station_coverage[station_name] = StationCoverage(station_name, station_pos['lat'], station_pos['lon'],
-                                                         privacy=station_pos['privacy'])
+        station_coverage[station_name] = StationCoverage(station_name, station_pos['lat'], station_pos['lon'])
 
     first = last = None
     num_positions = 0
@@ -164,16 +163,14 @@ def plot_from_datafile(csvfile, jsonfile, outdir):
             try:
                 t, addr, callsign, squawk, lat, lon, alt, err_est, nstations, ndistinct, stationlist = row[:11]
             except ValueError as e:
-                print
-                'row', reader.line_num, 'failed: ', str(e)
-                print
-                repr(row)
+                print('row', reader.line_num, 'failed: ', str(e))
+                print(repr(row))
                 continue
 
             t = float(t)
             lat = float(lat)
             lon = float(lon)
-            alt = float(alt)
+            alt = float(alt) if alt else 0
             err_est = max(0, float(err_est))
             nstations = int(nstations)
             ndistinct = int(ndistinct)
@@ -206,17 +203,37 @@ def plot_from_datafile(csvfile, jsonfile, outdir):
             num_positions += 1
 
     with closing(open(outdir + '/data.js', 'w')) as metafile:
-        print >> metafile, "var first_position = '{d}';".format(
-            d=time.strftime("%Y/%m/%d %H:%M:%S UTC", time.gmtime(first)))
-        print >> metafile, "var last_position = '{d}';".format(
-            d=time.strftime("%Y/%m/%d %H:%M:%S UTC", time.gmtime(last)))
-        print >> metafile, "var num_positions = {n};".format(n=num_positions)
-        print >> metafile, "var coverage = {};"
+        print("var first_position = '{}';".format(
+            time.strftime("%Y/%m/%d %H:%M:%S UTC", time.gmtime(first))), file=metafile)
+        print("var last_position = '{}';".format(
+            time.strftime("%Y/%m/%d %H:%M:%S UTC", time.gmtime(last))), file=metafile)
+        print("var num_positions = {};".format(num_positions), file=metafile)
+        print("var coverage = {};", file=metafile)
         for sc in station_coverage.values():
-            pngfile = 'coverage_{n}.png'.format(n=sc.name)
-            # print 'Writing', pngfile
+            pngfile = f'coverage_{sc.name}.png'
             sc.write(basedir=outdir, pngfile=pngfile, metafile=metafile)
 
 
+def move_files_to_outdir(outdir: str):
+    if not os.path.exists(outdir):
+        os.makedirs(outdir)
+    files_to_move = ["index.html", "style.css", "overlay.js"]
+    for file in files_to_move:
+        shutil.move(file, outdir + "/" + file)
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Process and plot data from files.')
+    parser.add_argument('--csvfile', help='Path to mlat.csv.', default="./mlat.csv")
+    parser.add_argument('--jsonfile', help='Path to the sync.json.', default="./sync.json")
+    parser.add_argument('--outdir', help='Output directory for the results.', default="./")
+    parser.add_argument('--update', help='Time between two execution', default=60 * 60 * 24, type=int)
+    args = parser.parse_args()
+    move_files_to_outdir(args.outdir)
+    while True:
+        plot_from_datafile(csvfile=args.csvfile, jsonfile=args.jsonfile, outdir=args.outdir)
+        time.sleep(args.update)
+
+
 if __name__ == '__main__':
-    plot_from_datafile(csvfile=sys.argv[1], jsonfile=sys.argv[2], outdir=sys.argv[3])
+    main()
