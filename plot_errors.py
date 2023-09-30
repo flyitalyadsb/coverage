@@ -214,12 +214,12 @@ def plot_from_datafile(csvfile, jsonfile, outdir):
             sc.write(basedir=outdir, pngfile=pngfile, metafile=metafile)
 
 
-def move_files_to_outdir(outdir: str):
+def copy_files_to_outdir(outdir: str):
     if not os.path.exists(outdir):
         os.makedirs(outdir)
-    files_to_move = ["index.html", "style.css", "overlay.js"]
-    for file in files_to_move:
-        shutil.move(file, outdir + "/" + file)
+    files_to_copy = ["index.html", "style.css", "overlay.js"]
+    for file in files_to_copy:
+        shutil.copy(file, outdir + "/" + file)
 
 
 def main():
@@ -229,7 +229,7 @@ def main():
     parser.add_argument('--outdir', help='Output directory for the results.', default="./")
     parser.add_argument('--update', help='Time between two execution', default=60 * 60 * 24, type=int)
     args = parser.parse_args()
-    move_files_to_outdir(args.outdir)
+    copy_files_to_outdir(args.outdir)
     while True:
         plot_from_datafile(csvfile=args.csvfile, jsonfile=args.jsonfile, outdir=args.outdir)
         time.sleep(args.update)
